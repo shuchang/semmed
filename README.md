@@ -1,1 +1,3 @@
-# semmed
+# SemMed
+
+Project is under construction...
