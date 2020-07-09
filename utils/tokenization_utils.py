@@ -1,14 +1,16 @@
 """
 Script to tokenize each visit (similar to word tokenize) in the
 medical record (similar to sentence tokenize) and make the list
-of all appeared cui
+of all appeared hf cui
+
+no need of tokenization
 """
 
 import os
 import json
 from tqdm import tqdm
 
-__all__ = ['tokenize_medical_record', 'make_cui_list']
+__all__ = ['tokenize_medical_record']
 
 
 
@@ -20,6 +22,7 @@ def tokenize_visits(visits):
         tokens: list with size of Vxc, where c stands for the num of cui in each visit
     """
     return tokens
+
 
 def tokenize_medical_record(medical_record_path, output_path):
     """
@@ -34,11 +37,5 @@ def tokenize_medical_record(medical_record_path, output_path):
             fout.write("".join(tokens) + "\n")
 
 
-def make_cui_list():
-    """
-    create the list of all cui appeared in the dataset
-    """
-
-
 if __name__ == "__main__":
-    tokenize_medical_record()
+    # tokenize_medical_record()

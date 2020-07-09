@@ -37,7 +37,7 @@ def load_merge_relation():
 def extract_semmed_cui(semmed_csv_path, semmed_cui_path):
     # TODO: deal with some error cui and its influence on graph constructing
     """
-    read the original SemMed csv file and extract all cui
+    read the original SemMed csv file to extract all cui and store
     """
     print('extracting cui list from SemMed...')
     semmed_cui_list = []
@@ -60,12 +60,19 @@ def extract_semmed_cui(semmed_csv_path, semmed_cui_path):
     print()
 
 
-def construct_graph(semmed_csv_path, output_path, prune=True):
-    # TODO: 1. prune 2. deal with the case that subj == obj
+def construct_graph(semmed_csv_path, semmed_cui_path, output_path, prune=True):
+    # TODO: 1. prune 2. deal with the case that subj == obj 3. cui with | 4. cui2idx?
     """
     construct the SemMed graph file
     """
     print("generating SemMed graph file...")
+
+    with open(semmed_cui_path, "r", encoding="utf-8") as fin:
+        idx2cui = [c.strip() for c in fin]
+    cui2idx = {c:i for i, c in enumerate(idx2cui)}
+
+    idx2relation = relations
+    relation2idx = {r: i for i, r in enumerate(idx2relation)}
 
     graph = nx.MultiDiGraph()
     nrow = sum(1 for _ in open(semmed_csv_path, "r", encoding="utf-8"))
@@ -75,9 +82,11 @@ def construct_graph(semmed_csv_path, output_path, prune=True):
             ls = line.strip().split(',')
             if ls == ['']:
                 continue
-            rel = ls[3].lower()
-            subj = ls[4]
-            obj = ls[8]
+            if ls[4] not in idx2cui or ls[8] not in idx2cui:
+                continue
+            rel = relation2idx[ls[3].lower()]
+            subj = cui2idx[ls[4]]
+            obj = cui2idx[ls[8]]
             if (subj, obj, rel) not in attrs:
                 graph.add_edge(subj, obj, rel=rel)
                 attrs.add((subj, obj, rel))
@@ -85,8 +94,6 @@ def construct_graph(semmed_csv_path, output_path, prune=True):
 
     print(f"graph file saved to {output_path}")
     print()
-
-
 
 
 if __name__ == "__main__":

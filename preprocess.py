@@ -1,12 +1,13 @@
 import os
 import argparse
 from multiprocessing import cpu_count
-from utils.convert_hfdata import convert_to_icd
+from utils.convert_hfdata import convert_to_cui
 # from utils.tokenization_utils import tokenize_medical_records, make_cui_list
 from utils.semmed import extract_semmed_cui, construct_graph
 # from utils.embedding import glove2npy, load_pretrained_embeddings
-# from utils.grounding import create_matcher_patterns, ground
-# from utils.paths import find_paths, score_paths, prune_paths, find_relational_paths_from_paths, generate_path_and_graph_from_adj
+from utils.grounding import ground
+from utils.paths import find_paths
+# , score_paths, prune_paths, find_relational_paths_from_paths, generate_path_and_graph_from_adj
 # from utils.graph import generate_graph, generate_adj_data_from_grounded_concepts, coo_to_normalized
 # from utils.triples import generate_triples_from_adj
 
@@ -40,7 +41,6 @@ input_paths = {
 output_paths = {
     'semmed': {
         'cui-list': './data/semmed/cui_list.txt',
-        'patterns': './data/semmed/matcher_patterns.json',
         'unpruned-graph': './data/semmed/semmed.unpruned.graph',
         'pruned-graph': './data/semmed/semmed.pruned.graph',
     },
@@ -58,7 +58,7 @@ output_paths = {
             'train': './data/hfdata/converted/train.jsonl',
             'dev': './data/hfdata/converted/dev.jsonl',
             'test': './data/hfdata/converted/test.jsonl',
-            'vocab': './data/hfdata/converted/vocab.json',
+            'vocab': './data/hfdata/converted/vocab.json', # haven't change to cui-list (hfdata) don't know where it will be used
         },
         'tokenized': {
             'train': './data/hfdata/tokenized/train.tokenized.txt',
@@ -124,32 +124,29 @@ def main():
             # {'func': extract_semmed_cui, 'args': (input_paths['semmed']['csv'], output_paths['semmed']['cui-list'])},
             # {'func': load_pretrained_embeddings,
             #  'args': (output_paths['numberbatch']['npy'], output_paths['numberbatch']['vocab'], output_paths['semmed']['vocab'], False, output_paths['numberbatch']['concept_npy'])},
-            # {'func': construct_graph, 'args': (input_paths['semmed']['csv'], output_paths['semmed']['unpruned-graph'], False)},
+            # {'func': construct_graph, 'args': (input_paths['semmed']['csv'], output_paths['semmed']['cui-list'], output_paths['semmed']['unpruned-graph'], False)},
             # {'func': construct_graph, 'args': (output_paths['semmed']['csv'], output_paths['semmed']['vocab'],
                                             #    output_paths['semmed']['pruned-graph'], True)},
         ],
         'hfdata': [
-            # {'func': convert_to_icd, 'args': (input_paths['hfdata']['train'], output_paths['hfdata']['converted']['train'], input_paths['hfdata']['code2idx'],
+            # {'func': convert_to_cui, 'args': (input_paths['hfdata']['train'], output_paths['hfdata']['converted']['train'], input_paths['hfdata']['code2idx'],
             #                                   input_paths['snomed']['snomedct'], input_paths['snomed']['icd2snomed_1to1'], input_paths['snomed']['icd2snomed_1toM'])},
-            # {'func': convert_to_icd, 'args': (input_paths['hfdata']['dev'], output_paths['hfdata']['converted']['dev'], input_paths['hfdata']['code2idx'],
+            # {'func': convert_to_cui, 'args': (input_paths['hfdata']['dev'], output_paths['hfdata']['converted']['dev'], input_paths['hfdata']['code2idx'],
             #                                   input_paths['snomed']['snomedct'], input_paths['snomed']['icd2snomed_1to1'], input_paths['snomed']['icd2snomed_1toM'])},
-            # {'func': convert_to_icd, 'args': (input_paths['hfdata']['test'], output_paths['hfdata']['converted']['test'], input_paths['hfdata']['code2idx'],
+            # {'func': convert_to_cui, 'args': (input_paths['hfdata']['test'], output_paths['hfdata']['converted']['test'], input_paths['hfdata']['code2idx'],
             #                                   input_paths['snomed']['snomedct'], input_paths['snomed']['icd2snomed_1to1'], input_paths['snomed']['icd2snomed_1toM'])},
             # {'func': tokenize_medical_records, 'args': (output_paths['hfdata']['converted']['train'], output_paths['hfdata']['tokenized']['train'])},
             # {'func': tokenize_medical_records, 'args': (output_paths['hfdata']['converted']['dev'], output_paths['hfdata']['tokenized']['dev'])},
             # {'func': tokenize_medical_records, 'args': (output_paths['hfdata']['converted']['test'], output_paths['hfdata']['tokenized']['test'])},
             # {'func': make_word_vocab, 'args': (output_paths['hfdata']['statement']['train'], output_paths['hfdata']['statement']['vocab'])},
-            # {'func': ground, 'args': (output_paths['hfdata']['statement']['train'], output_paths['semmed']['vocab'],
-            #                           output_paths['semmed']['patterns'], output_paths['hfdata']['grounded']['train'], args.nprocs)},
-            # {'func': ground, 'args': (output_paths['hfdata']['statement']['dev'], output_paths['semmed']['vocab'],
-            #                           output_paths['semmed']['patterns'], output_paths['hfdata']['grounded']['dev'], args.nprocs)},
-            # {'func': ground, 'args': (output_paths['hfdata']['statement']['test'], output_paths['semmed']['vocab'],
-            #                           output_paths['semmed']['patterns'], output_paths['hfdata']['grounded']['test'], args.nprocs)},
-            # {'func': find_paths, 'args': (output_paths['hfdata']['grounded']['train'], output_paths['semmed']['vocab'],
+            # {'func': ground, 'args': (output_paths['hfdata']['converted']['train'], output_paths['semmed']['cui-list'], output_paths['hfdata']['grounded']['train'])},
+            # {'func': ground, 'args': (output_paths['hfdata']['converted']['dev'], output_paths['semmed']['cui-list'], output_paths['hfdata']['grounded']['dev'])},
+            # {'func': ground, 'args': (output_paths['hfdata']['converted']['test'], output_paths['semmed']['cui-list'], output_paths['hfdata']['grounded']['test'])},
+            # {'func': find_paths, 'args': (output_paths['hfdata']['grounded']['train'], output_paths['semmed']['cui-list'],
             #                               output_paths['semmed']['pruned-graph'], output_paths['hfdata']['paths']['raw-train'], args.nprocs, args.seed)},
-            # {'func': find_paths, 'args': (output_paths['hfdata']['grounded']['dev'], output_paths['semmed']['vocab'],
-            #                               output_paths['semmed']['pruned-graph'], output_paths['hfdata']['paths']['raw-dev'], args.nprocs, args.seed)},
-            # {'func': find_paths, 'args': (output_paths['hfdata']['grounded']['test'], output_paths['semmed']['vocab'],
+            {'func': find_paths, 'args': (output_paths['hfdata']['grounded']['dev'], output_paths['semmed']['cui-list'],
+                                          output_paths['semmed']['unpruned-graph'], output_paths['hfdata']['paths']['raw-dev'], args.nprocs, args.seed)},
+            # {'func': find_paths, 'args': (output_paths['hfdata']['grounded']['test'], output_paths['semmed']['cui-list'],
             #                               output_paths['semmed']['pruned-graph'], output_paths['hfdata']['paths']['raw-test'], args.nprocs, args.seed)},
             # {'func': score_paths, 'args': (output_paths['hfdata']['paths']['raw-train'], input_paths['transe']['ent'], input_paths['transe']['rel'],
             #                                output_paths['semmed']['vocab'], output_paths['hfdata']['paths']['scores-train'], args.nprocs)},

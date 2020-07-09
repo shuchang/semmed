@@ -138,7 +138,7 @@ def create_output_dict(row, medical_record, hf_label, icd_list, idx2code, icd2cu
     return output_dict
 
 
-def convert_to_icd(pickle_file, output_file, code2idx_path, snomedct_path, icd2snomed_1to1_path, icd2snomed_1toM_path):
+def convert_to_cui(pickle_file, output_file, code2idx_path, snomedct_path, icd2snomed_1to1_path, icd2snomed_1toM_path):
     """
     Read input data in pickle format, convert them into the dictionary
     and write the converted data in jsonl format
@@ -169,5 +169,5 @@ def convert_to_icd(pickle_file, output_file, code2idx_path, snomedct_path, icd2s
 if __name__ == "__main__":
     if len(sys.argv) != 7:
         raise ValueError("Provide six arguments")
-    convert_to_icd((sys.argv[1]), (sys.argv[2]), (sys.argv[3]),
+    convert_to_cui((sys.argv[1]), (sys.argv[2]), (sys.argv[3]),
                    (sys.argv[4]), (sys.argv[5]), (sys.argv[6]))
