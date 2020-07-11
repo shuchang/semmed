@@ -34,26 +34,31 @@ def load_merge_relation():
     """
 
 
-def extract_semmed_cui(semmed_csv_path, semmed_cui_path):
+def extract_semmed_cui(semmed_csv_path, output_csv_path, semmed_cui_path):
     # TODO: deal with some error cui and its influence on graph constructing
     """
     read the original SemMed csv file to extract all cui and store
     """
     print('extracting cui list from SemMed...')
-    semmed_cui_list = []
+    semmed_cui_vocab = []
+    cui_seen = set()
     nrow = sum(1 for _ in open(semmed_csv_path, "r", encoding="utf-8"))
-    with open(semmed_csv_path, "r", encoding="utf-8") as fin:
+    with open(semmed_csv_path, "r", encoding="utf-8") as fin, open(output_csv_path, "w", encoding="utf-8") as fout:
         for line in tqdm(fin, total=nrow):
             ls = line.strip().split(',')
             if ls == ['']:
                 continue
             subj = ls[4]
             obj = ls[8]
-            semmed_cui_list.append(subj)
-            semmed_cui_list.append(obj)
-        semmed_cui_list = list(set(semmed_cui_list))
+            if len(subj) == 8 and len(obj) == 8 and subj.startswith("C") and obj.startswith("C"):
+                fout.write(line+"\n")
+                for i in [subj, obj]:
+                    if i not in cui_seen:
+                        semmed_cui_vocab.append(i)
+                        cui_seen.add(i)
+
     with open(semmed_cui_path, "w", encoding="utf-8") as fout:
-        for semmed_cui in semmed_cui_list:
+        for semmed_cui in semmed_cui_vocab:
             fout.write(semmed_cui + "\n")
 
     print(f'extracted cui saved to {semmed_cui_path}')
@@ -66,10 +71,9 @@ def construct_graph(semmed_csv_path, semmed_cui_path, output_path, prune=True):
     construct the SemMed graph file
     """
     print("generating SemMed graph file...")
-
     with open(semmed_cui_path, "r", encoding="utf-8") as fin:
         idx2cui = [c.strip() for c in fin]
-    cui2idx = {c:i for i, c in enumerate(idx2cui)}
+    cui2idx = {c: i for i, c in enumerate(idx2cui)}
 
     idx2relation = relations
     relation2idx = {r: i for i, r in enumerate(idx2relation)}
@@ -82,11 +86,11 @@ def construct_graph(semmed_csv_path, semmed_cui_path, output_path, prune=True):
             ls = line.strip().split(',')
             if ls == ['']:
                 continue
-            if ls[4] not in idx2cui or ls[8] not in idx2cui:
-                continue
             rel = relation2idx[ls[3].lower()]
             subj = cui2idx[ls[4]]
             obj = cui2idx[ls[8]]
+            if subj == obj:
+                continue
             if (subj, obj, rel) not in attrs:
                 graph.add_edge(subj, obj, rel=rel)
                 attrs.add((subj, obj, rel))
@@ -97,4 +101,5 @@ def construct_graph(semmed_csv_path, semmed_cui_path, output_path, prune=True):
 
 
 if __name__ == "__main__":
-    glove_init("../data/glove/glove.6B.200d.txt", "../data/glove/glove.200d", '../data/glove/tp_str_corpus.json')
+    #extract_semmed_cui("../data/semmed/database.csv", "../data/semmed/database_pruned.csv", "../data/semmed/cui_vocab.txt")
+    construct_graph("../data/semmed/database_pruned.csv","../data/semmed/cui_vocab.txt","../data/semmed/database_pruned.graph")
