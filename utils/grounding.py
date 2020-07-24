@@ -1,5 +1,5 @@
 """
-Script to ground cui of medical records to that of SemMed
+Script to ground cui of medical records using SemMed
 """
 import json
 import sys
@@ -30,38 +30,8 @@ def combine_visit_cui(record_cui):
         combined_cui += visit_cui
     combined_cui = list(set(combined_cui))
     # if combined_cui == []:
-    #     print("no cui is found")
+    #     print(f"no cui is found for {record_cui}")
     return combined_cui
-
-
-# def prune(data: list, semmed_cui) -> list:
-#     """
-#     prune all record cui that do not exist in SemMed cui without using multiprocessing
-#     `param`:
-#         data: list of dictionaries with the form of {"record_cui": record_cui, "hf_cui": hf_cui}
-#         semmed_cui:
-#     `return`:
-#         prune_data: list of dictionaries with the form of {"record_cui": record_cui, "hf_cui": hf_cui}
-#     """
-
-#     prune_data = []
-#     for item in tqdm(data, desc="grounding"):
-#         prune_record_cui = []
-#         record_cui = item["record_cui"]
-#         for rc in record_cui:
-#             if rc in semmed_cui:
-#                 prune_record_cui.append(rc)
-
-#         prune_hf_cui = []
-#         hf_cui = item["hf_cui"]
-#         for hc in hf_cui:
-#             if hc in semmed_cui:
-#                 prune_hf_cui.append(hc)
-
-#         item["record_cui"] = prune_record_cui
-#         item["hf_cui"] = prune_hf_cui
-#         prune_data.append(item)
-#     return prune_data
 
 
 def prune(item: dict) -> dict:
@@ -93,7 +63,7 @@ def prune(item: dict) -> dict:
     return prune_item
 
 
-def ground(medical_record_path, semmed_cui_path, output_path, num_processes=1, debug=True):
+def ground(medical_record_path, semmed_cui_path, output_path, num_processes=1, debug=False):
     print(f"grounding {medical_record_path} based on {semmed_cui_path}")
 
     global semmed_cui
@@ -105,11 +75,9 @@ def ground(medical_record_path, semmed_cui_path, output_path, num_processes=1, d
         lines = [line for line in fin]
 
     if debug:
-        lines = lines[0:8]
+        lines = lines[0:2]
 
     for line in lines:
-        # if line == "":
-        #     continue
         total_cui = {}
         j = json.loads(line)
         medical_record = j["medical_records"]

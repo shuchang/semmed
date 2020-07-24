@@ -1,5 +1,6 @@
 import itertools
 import json
+import sys
 import pickle as pkl
 from multiprocessing import Pool
 
@@ -9,28 +10,26 @@ from scipy import sparse
 from scipy.sparse import coo_matrix, csr_matrix
 from tqdm import tqdm
 
-# import torch
-
 # from .maths import *
 
-try:
-    from .semmed import relations
-except ModuleNotFoundError:
-    from semmed import relations
+# try:
+#     from .semmed import relations
+# except ModuleNotFoundError:
+#     from semmed import relations
 
 
 __all__ = ['generate_graph']
 
 
-# relations = ['administered_to', 'affects', 'associated_with', 'augments', 'causes', 'coexists_with', 'compared_with', 'complicates',
-#              'converts_to', 'diagnoses', 'disrupts', 'higher_than', 'inhibits', 'isa', 'interacts_with', 'location_of', 'lower_than',
-#              'manifestation_of', 'measurement_of', 'measures', 'method_of', 'occurs_in', 'part_of', 'precedes', 'predisposes', 'prep',
-#              'prevents', 'process_of', 'produces', 'same_as', 'stimulates', 'treats', 'uses',
-#              'neg_administered_to', 'neg_affects', 'neg_associated_with', 'neg_augments', 'neg_causes', 'neg_coexists_with',
-#              'neg_complicates', 'neg_converts_to', 'neg_diagnoses', 'neg_disrupts', 'neg_higher_than', 'neg_inhibits', 'neg_isa',
-#              'neg_interacts_with', 'neg_location_of', 'neg_lower_than', 'neg_manifestation_of', 'neg_measurement_of', 'neg_measures',
-#              'neg_method_of', 'neg_occurs_in', 'neg_part_of', 'neg_precedes', 'neg_predisposes', 'neg_prevents', 'neg_process_of',
-#              'neg_produces', 'neg_same_as', 'neg_stimulates', 'neg_treats', 'neg_uses']
+relations = ['administered_to', 'affects', 'associated_with', 'augments', 'causes', 'coexists_with', 'complicates', 'converts_to',
+             'diagnoses', 'disrupts', 'higher_than', 'inhibits', 'isa', 'interacts_with', 'location_of', 'lower_than', 'manifestation_of',
+             'measurement_of', 'measures', 'method_of', 'occurs_in', 'part_of', 'precedes', 'predisposes', 'prevents', 'process_of',
+             'produces', 'same_as', 'stimulates', 'treats', 'uses',  'compared_with', 'prep',
+             'neg_administered_to', 'neg_affects', 'neg_associated_with', 'neg_augments', 'neg_causes', 'neg_coexists_with',
+             'neg_complicates', 'neg_converts_to', 'neg_diagnoses', 'neg_disrupts', 'neg_higher_than', 'neg_inhibits', 'neg_isa',
+             'neg_interacts_with', 'neg_location_of', 'neg_lower_than', 'neg_manifestation_of', 'neg_measurement_of', 'neg_measures',
+             'neg_method_of', 'neg_occurs_in', 'neg_part_of', 'neg_precedes', 'neg_predisposes', 'neg_prevents', 'neg_process_of',
+             'neg_produces', 'neg_same_as', 'neg_stimulates', 'neg_treats', 'neg_uses']
 
 
 cui2idx = None
@@ -39,7 +38,6 @@ relation2idx = None
 idx2relation = None
 
 semmed = None
-semmed_all = None
 semmed_simple = None
 
 
@@ -127,13 +125,12 @@ def cui2adj(node_idxs):
                 for e_attr in semmed[s_c][t_c].values():
                     if e_attr["rel"] >= 0 and e_attr["rel"] < n_rel:
                         adj[e_attr["rel"]][s][t] = 1
+    # cui_idxs += 1  # note!!! index 0 is reserved for padding
     adj = coo_matrix(adj.reshape(-1, n_node))
     return adj, cui_idxs
 
 
 def cui_to_adj_matrices_2hop_all_pair(data):
-    """
-    """
     record_idxs, hf_idxs = data
     nodes = set(record_idxs) | set(hf_idxs)
     extra_nodes = set()
@@ -148,8 +145,41 @@ def cui_to_adj_matrices_2hop_all_pair(data):
     arange = np.arange(len(schema_graph))
     record_mask = arange < len(record_idxs)
     hf_mask = (arange >= len(record_idxs)) & (arange < (len(record_idxs) + len(hf_idxs)))
-    adj, cui = cui2adj(schema_graph)
-    return adj, cui, record_mask, hf_mask
+    adj, cui_idxs = cui2adj(schema_graph)
+    return adj, cui_idxs, record_mask, hf_mask
+
+
+def save_nodes_of_2hop_all_pair(data):
+    record_idxs, hf_idxs = data
+    nodes = set(record_idxs) | set(hf_idxs)
+    all_nodes = set()
+
+    for record_idx in nodes:
+        for hf_idx in nodes:
+            if record_idx != hf_idx and record_idx in semmed_simple.nodes and hf_idx in semmed_simple.nodes:
+                all_nodes |= set(semmed_simple[record_idx]) & set(semmed_simple[hf_idx])
+    return all_nodes
+
+
+def extract_triples(cui_idx: list, rel_idx: list) -> list:
+    """
+    extract triples in one path
+
+    `params`:
+        cui_idx: list of cui index in the path
+        rel_idx: list of relation index lists
+    `return`:
+        triples:
+    """
+    triples = []
+    for i in range(len(cui_idx) - 1):
+        h = cui_idx[i]
+        t = cui_idx[i + 1]
+        if rel_idx[i] == None:
+            continue
+        for j in range(len(rel_idx[i])):
+            triples.append((h, t, rel_idx[i][j]))
+    return triples
 
 
 #####################################################################################################
@@ -157,8 +187,8 @@ def cui_to_adj_matrices_2hop_all_pair(data):
 #####################################################################################################
 
 
-def generate_graph(grounded_path, raw_paths_path, semmed_cui_path, semmed_graph_path, output_path):
-    print(f"generating schema graphs for {grounded_path} and {raw_paths_path}...")
+def generate_graph(grounded_path, pruned_paths_path, semmed_cui_path, semmed_graph_path, output_path):
+    print(f"generating schema graphs for {grounded_path} and {pruned_paths_path}...")
 
     global cui2idx, idx2cui, relation2idx, idx2relation, semmed, semmed_simple
     if any(x is None for x in [cui2idx, idx2cui, relation2idx, idx2relation]):
@@ -167,7 +197,7 @@ def generate_graph(grounded_path, raw_paths_path, semmed_cui_path, semmed_graph_
         load_semmed(semmed_graph_path)
 
     nrow = sum(1 for _ in open(grounded_path, "r"))
-    with open(grounded_path, "r") as fin_gr, open(raw_paths_path, "r") as fin_rp, \
+    with open(grounded_path, "r") as fin_gr, open(pruned_paths_path, "r") as fin_rp, \
          open(output_path, "w") as fout:
         for line_gr, line_rp in tqdm(zip(fin_gr, fin_rp), total=nrow):
             mcp = json.loads(line_gr) # matched cui pair?
@@ -179,7 +209,7 @@ def generate_graph(grounded_path, raw_paths_path, semmed_cui_path, semmed_graph_
             paths = []
             rel_list = []
             for pair in pfr_pair:
-                if pair["pf_res"] is None: # TODO: change the find_paths
+                if pair["pf_res"] is None:
                     cur_paths = []
                     cur_rels = []
                 else:
@@ -198,7 +228,7 @@ def generate_graph(grounded_path, raw_paths_path, semmed_cui_path, semmed_graph_
 def generate_adj_data_from_grounded_concepts(grounded_path, semmed_graph_path, semmed_cui_path, output_path, num_processes=8):
     """
     This function will save
-        (1) adjacency matrics (each in the form of a (R*N, N) coo sparse matrix)
+        (1) adjacency matrices (each in the form of a (R*N, N) coo sparse matrix)
         (2) cui idxs
         (3) record_mask that specifices whether a node is a record_cui
         (4) hf_mask that specifices whether a node is a hf_cui
@@ -223,9 +253,127 @@ def generate_adj_data_from_grounded_concepts(grounded_path, semmed_graph_path, s
 
     with Pool(num_processes) as p:
         res = list(tqdm(p.imap(cui_to_adj_matrices_2hop_all_pair, data), total=len(data)))
+    # res = []
+    # for i in tqdm(range(0, len(qa_data))):
+    #     res.append(concepts_to_adj_matrices_2hop_all_pair(qa_data[i]))
 
     with open(output_path, "wb") as fout:
         pkl.dump(res, fout)
 
     print(f'adj data saved to {output_path}')
     print()
+
+
+def extract_subgraph_cui(grounded_train_path, grounded_dev_path, grounded_test_path, semmed_graph_path, semmed_cui_path, output_path, num_processes=8, debug=False):
+    print(f"extracting subgraph cui from grounded_path...")
+
+    global cui2idx, idx2cui, relation2idx, idx2relation, semmed, semmed_simple
+    if any(x is None for x in [cui2idx, idx2cui, relation2idx, idx2relation]):
+        load_resources(semmed_cui_path)
+    if any(x is None for x in [semmed, semmed_simple]):
+        load_semmed(semmed_graph_path)
+
+    data = []
+    semmed_cui_list = []
+
+    with open(grounded_train_path, "r", encoding="utf-8") as fin:
+        for line in fin:
+            dic = json.loads(line)
+            record_idxs = set(cui2idx[c] for c in dic["record_cui"])
+            hf_idxs = set(cui2idx[c] for c in dic["hf_cui"])
+            record_idxs = record_idxs - hf_idxs
+            data.append((record_idxs, hf_idxs))
+    with open(grounded_dev_path, "r", encoding="utf-8") as fin:
+        for line in fin:
+            dic = json.loads(line)
+            record_idxs = set(cui2idx[c] for c in dic["record_cui"])
+            hf_idxs = set(cui2idx[c] for c in dic["hf_cui"])
+            record_idxs = record_idxs - hf_idxs
+            data.append((record_idxs, hf_idxs))
+    with open(grounded_test_path, "r", encoding="utf-8") as fin:
+        for line in fin:
+            dic = json.loads(line)
+            record_idxs = set(cui2idx[c] for c in dic["record_cui"])
+            hf_idxs = set(cui2idx[c] for c in dic["hf_cui"])
+            record_idxs = record_idxs - hf_idxs
+            data.append((record_idxs, hf_idxs))
+
+    if debug:
+        data = data[0:8]
+
+    with Pool(num_processes) as p:
+        res = list(tqdm(p.imap(save_nodes_of_2hop_all_pair, data), total=len(data)))
+    for cui_set in res:
+        semmed_cui_list.extend(list(cui_set))
+    semmed_cui_list = list(set(semmed_cui_list))
+
+    with open(output_path, "w", encoding="utf-8") as fout:
+        for semmed_cui in semmed_cui_list:
+            fout.write(str(idx2cui[semmed_cui]) + "\n")
+
+    print(f'extracted subgraph cui saved to {output_path}')
+    print()
+
+
+def extract_subgraph(raw_paths_train_path, raw_paths_dev_path, raw_paths_test_path, semmed_cui_path, output_path):
+    print('extracting subgraph of SemMed by preserving all triples without repetition...')
+
+    global cui2idx, idx2cui, relation2idx, idx2relation
+    if any(x is None for x in [cui2idx, idx2cui, relation2idx, idx2relation]):
+        load_resources(semmed_cui_path)
+
+    triple_list = []
+    nrow_train = sum(1 for _ in open(raw_paths_train_path, "r"))
+    nrow_dev = sum(1 for _ in open(raw_paths_dev_path, "r"))
+    nrow_test = sum(1 for _ in open(raw_paths_test_path, "r"))
+
+    with open(raw_paths_train_path, "r") as fin:
+        data = [json.loads(line) for line in fin]
+        for item in tqdm(data, total=nrow_train, desc="extracting from train"):
+            for line in item:
+                pair_paths = line["pf_res"]
+                if pair_paths is None: # TODO: find out why pair_paths is None
+                    continue
+                for path in pair_paths:
+                    triples = extract_triples(cui_idx=path["path"], rel_idx=path["rel"])
+                    for t in triples:
+                        triple_list.append(t)
+
+    with open(raw_paths_dev_path, "r") as fin:
+        data = [json.loads(line) for line in fin]
+        for item in tqdm(data, total=nrow_dev, desc="extracting from dev"):
+            for line in item:
+                pair_paths = line["pf_res"]
+                if pair_paths is None:
+                    continue
+                for path in pair_paths:
+                    triples = extract_triples(cui_idx=path["path"], rel_idx=path["rel"])
+                    for t in triples:
+                        triple_list.append(t)
+
+    with open(raw_paths_test_path, "r") as fin:
+        data = [json.loads(line) for line in fin]
+        for item in tqdm(data, total=nrow_test, desc="extracting from test"):
+            for line in item:
+                pair_paths = line["pf_res"]
+                if pair_paths is None:
+                    continue
+                for path in pair_paths:
+                    triples = extract_triples(cui_idx=path["path"], rel_idx=path["rel"])
+                    for t in triples:
+                        triple_list.append(t)
+
+    triple_list = list(set(triple_list))
+
+    with open(output_path, "w", encoding="utf-8") as fout:
+        for triple in triple_list:
+            fout.write(str(triple[0]) + "\t" + str(triple[1]) + "\t" + str(triple[2])+ "\n")
+
+    print(f'extracted subgraph saved to {output_path}')
+    print()
+
+
+
+if __name__ == "__main__":
+    # generate_adj_data_from_grounded_concepts((sys.argv[1]), (sys.argv[2]), (sys.argv[3]), (sys.argv[4]))
+    extract_subgraph_cui((sys.argv[1]), (sys.argv[2]), (sys.argv[3]), (sys.argv[4]), (sys.argv[5]), (sys.argv[6]))

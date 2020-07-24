@@ -1,13 +1,18 @@
 import random
 
+from tqdm import tqdm
+from transformers import (ConstantLRSchedule, WarmupLinearSchedule, WarmupConstantSchedule)
+
 from modeling.modeling_grn import *
-from utils.optimization_utils import *
+from utils.optimization_utils import OPTIMIZER_CLASSES
 from utils.parser_utils import *
 from utils.relpath_utils import *
+from utils.semmed import relations
 
 DECODER_DEFAULT_LR = {
     'csqa': 1e-3,
     'obqa': 3e-4,
+    'hfdata': 1e-3
 }
 
 
@@ -21,7 +26,13 @@ def evaluate_accuracy(eval_set, model):
     with torch.no_grad():
         for qids, labels, *input_data in eval_set:
             logits, _ = model(*input_data)
-            n_correct += (logits.argmax(1) == labels).sum().item()
+            for i in range(logits.size(0)):
+                if logits[i] >= 0:
+                    logits[i] = 1
+                else:
+                    logits[i] = 0
+                if logits[i] == labels[i]:
+                    n_correct += 1
             n_samples += labels.size(0)
     return n_correct / n_samples
 
@@ -33,14 +44,18 @@ def main():
     parser.add_argument('--save_dir', default=f'./saved_models/grn/', help='model output directory')
 
     # data
-    parser.add_argument('--cpnet_vocab_path', default='./data/cpnet/concept.txt')
-    parser.add_argument('--num_relation', default=34, type=int, help='number of relations')
-    parser.add_argument('--train_adj', default=f'./data/{args.dataset}/graph/train.graph.adj.pk')
-    parser.add_argument('--dev_adj', default=f'./data/{args.dataset}/graph/dev.graph.adj.pk')
-    parser.add_argument('--test_adj', default=f'./data/{args.dataset}/graph/test.graph.adj.pk')
-    parser.add_argument('--train_embs', default=f'./data/{args.dataset}/features/train.{get_node_feature_encoder(args.encoder)}.features.pk')
-    parser.add_argument('--dev_embs', default=f'./data/{args.dataset}/features/dev.{get_node_feature_encoder(args.encoder)}.features.pk')
-    parser.add_argument('--test_embs', default=f'./data/{args.dataset}/features/test.{get_node_feature_encoder(args.encoder)}.features.pk')
+    parser.add_argument('--cpnet_vocab_path', default='./data/semmed/cui_vocab.txt')
+    parser.add_argument('--num_relation', default=128, type=int, help='number of relations')
+    parser.add_argument('--train_adj', default=f'./data/{args.dataset}/graph/train_graph_adj.pk')
+    parser.add_argument('--dev_adj', default=f'./data/{args.dataset}/graph/dev_graph_adj.pk')
+    parser.add_argument('--test_adj', default=f'./data/{args.dataset}/graph/test_graph_adj.pk')
+    # parser.add_argument('--train_embs', default=f'./data/{args.dataset}/features/train.{get_node_feature_encoder(args.encoder)}.features.pk')
+    # parser.add_argument('--dev_embs', default=f'./data/{args.dataset}/features/dev.{get_node_feature_encoder(args.encoder)}.features.pk')
+    # parser.add_argument('--test_embs', default=f'./data/{args.dataset}/features/test.{get_node_feature_encoder(args.encoder)}.features.pk')
+
+    parser.add_argument('--train_embs', default=None)
+    parser.add_argument('--dev_embs', default=None)
+    parser.add_argument('--test_embs', default=None)
 
     # model architecture
     parser.add_argument('-k', '--k', default=2, type=int, help='perform k-hop message passing at each layer')
@@ -59,7 +74,7 @@ def main():
     parser.add_argument('--gnn_layer_num', default=1, type=int, help='number of GNN layers')
     parser.add_argument('--fc_dim', default=200, type=int, help='number of FC hidden units')
     parser.add_argument('--fc_layer_num', default=0, type=int, help='number of FC layers')
-    parser.add_argument('--freeze_ent_emb', default=True, type=bool_flag, nargs='?', const=True, help='freeze entity embedding layer')
+    parser.add_argument('--freeze_ent_emb', default=False, type=bool_flag, nargs='?', const=False, help='freeze entity embedding layer')
     parser.add_argument('--eps', type=float, default=1e-15, help='avoid numeric overflow')
     parser.add_argument('--init_range', default=0.02, type=float, help='stddev when initializing with normal distribution')
     parser.add_argument('--init_rn', default=True, type=bool_flag, nargs='?', const=True)
@@ -126,7 +141,6 @@ def train(args):
         use_contextualized = False
     cp_emb = [np.load(path) for path in args.ent_emb_paths]
     cp_emb = torch.tensor(np.concatenate(cp_emb, 1), dtype=torch.float)
-
     concept_num, concept_dim = cp_emb.size(0), cp_emb.size(1)
     print('| num_concepts: {} |'.format(concept_num))
 
@@ -197,7 +211,7 @@ def train(args):
     if args.loss == 'margin_rank':
         loss_func = nn.MarginRankingLoss(margin=0.1, reduction='mean')
     elif args.loss == 'cross_entropy':
-        loss_func = nn.CrossEntropyLoss(reduction='mean')
+        loss_func = nn.BCEWithLogitsLoss(reduction='mean')
 
     ###################################################################################################
     #   Training                                                                                      #
@@ -227,12 +241,17 @@ def train(args):
                     if args.loss == 'margin_rank':
                         num_choice = logits.size(1)
                         flat_logits = logits.view(-1)
-                        correct_mask = F.one_hot(labels, num_classes=num_choice).view(-1)  # of length batch_size*num_choice
-                        correct_logits = flat_logits[correct_mask == 1].contiguous().view(-1, 1).expand(-1, num_choice - 1).contiguous().view(-1)  # of length batch_size*(num_choice-1)
+                        correct_mask = F.one_hot(labels, num_classes=num_choice).view(
+                            -1)  # of length batch_size*num_choice
+                        correct_logits = flat_logits[correct_mask == 1].contiguous().view(-1, 1).expand(-1,
+                                                                                                        num_choice - 1).contiguous().view(
+                            -1)  # of length batch_size*(num_choice-1)
                         wrong_logits = flat_logits[correct_mask == 0]  # of length batch_size*(num_choice-1)
                         y = wrong_logits.new_ones((wrong_logits.size(0),))
                         loss = loss_func(correct_logits, wrong_logits, y)  # margin ranking loss
                     elif args.loss == 'cross_entropy':
+                        # print(labels[a:b])
+                        # print(logits)
                         loss = loss_func(logits, labels[a:b])
                     loss = loss * (b - a) / bs
                     loss.backward()
@@ -245,7 +264,10 @@ def train(args):
                 if (global_step + 1) % args.log_interval == 0:
                     total_loss /= args.log_interval
                     ms_per_batch = 1000 * (time.time() - start_time) / args.log_interval
-                    print('| step {:5} |  lr: {:9.7f} | loss {:7.4f} | ms/batch {:7.2f} |'.format(global_step, scheduler.get_lr()[0], total_loss, ms_per_batch))
+                    print('| step {:5} |  lr: {:9.7f} | loss {:7.4f} | ms/batch {:7.2f} |'.format(global_step,
+                                                                                                  scheduler.get_lr()[0],
+                                                                                                  total_loss,
+                                                                                                  ms_per_batch))
                     total_loss = 0
                     start_time = time.time()
                 global_step += 1
@@ -254,7 +276,7 @@ def train(args):
             dev_acc = evaluate_accuracy(dataset.dev(), model)
             test_acc = evaluate_accuracy(dataset.test(), model) if args.test_statements else 0.0
             print('-' * 71)
-            print('| step {:5} | dev_acc {:7.4f} | test_acc {:7.4f} |'.format(global_step, dev_acc, test_acc))
+            print('| step {:5} | dev_acc {:7.4f} | test_acc {:7.4f} | loss {:7.4f} '.format(global_step, dev_acc, test_acc, total_loss))
             print('-' * 71)
             with open(log_path, 'a') as fout:
                 fout.write('{},{},{}\n'.format(global_step, dev_acc, test_acc))
@@ -307,40 +329,7 @@ def eval(args):
 
 
 def pred(args):
-    dev_pred_path = os.path.join(args.save_dir, 'predictions_dev.csv')
-    test_pred_path = os.path.join(args.save_dir, 'predictions_test.csv')
-
-    model_path = os.path.join(args.save_dir, 'model.pt')
-    model, old_args = torch.load(model_path)
-    device = torch.device("cuda:0" if torch.cuda.is_available() and args.cuda else "cpu")
-    model.to(device)
-    model.eval()
-
-    use_contextualized = 'lm' in old_args.ent_emb
-    dataset = LMGraphRelationNetDataLoader(old_args.train_statements, old_args.train_adj,
-                                           old_args.dev_statements, old_args.dev_adj,
-                                           old_args.test_statements, old_args.test_adj,
-                                           batch_size=args.batch_size, eval_batch_size=args.eval_batch_size, device=(device, device),
-                                           model_name=old_args.encoder,
-                                           max_node_num=old_args.max_node_num, max_seq_length=old_args.max_seq_len,
-                                           is_inhouse=old_args.inhouse, inhouse_train_qids_path=old_args.inhouse_train_qids, use_contextualized=use_contextualized,
-                                           train_embs_path=old_args.train_embs, dev_embs_path=old_args.dev_embs, test_embs_path=old_args.test_embs,
-                                           subsample=old_args.subsample, format=old_args.format)
-
-    print()
-    print("***** generating model predictions *****")
-    print(f'| dataset: {old_args.dataset} | num_dev: {dataset.dev_size()} | num_test: {dataset.test_size()} | save_dir: {args.save_dir} |')
-
-    for output_path, data_loader in [(dev_pred_path, dataset.dev())] + ([(test_pred_path, dataset.test())] if dataset.test_size() > 0 else []):
-        with torch.no_grad(), open(output_path, 'w') as fout:
-            for qids, labels, *input_data in tqdm(data_loader):
-                logits, _ = model(*input_data)
-                for qid, pred_label in zip(qids, logits.argmax(1)):
-                    fout.write('{},{}\n'.format(qid, chr(ord('A') + pred_label.item())))
-        print(f'predictions saved to {output_path}')
-
-    print("***** prediction done *****")
-    print()
+    raise NotImplementedError()
 
 
 def decode(args):
@@ -376,10 +365,10 @@ def decode(args):
                 res.append(id2concept[path_ids[p].item()])
             else:  # relationi
                 rid = path_ids[p].item()
-                if rid < len(merged_relations):
-                    res.append('<--[{}]---'.format(merged_relations[rid]))
+                if rid < len(relations):
+                    res.append('<--[{}]---'.format(relations[rid]))
                 else:
-                    res.append('---[{}]--->'.format(merged_relations[rid - len(merged_relations)]))
+                    res.append('---[{}]--->'.format(relations[rid - len(relations)]))
         return ' '.join(res)
 
     print()
