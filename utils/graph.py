@@ -149,15 +149,62 @@ def cui_to_adj_matrices_2hop_all_pair(data):
     return adj, cui_idxs, record_mask, hf_mask
 
 
-def save_nodes_of_2hop_all_pair(data):
+def concepts_to_adj_matrices_3hop_qa_pair(data):
     record_idxs, hf_idxs = data
     nodes = set(record_idxs) | set(hf_idxs)
-    all_nodes = set()
+    extra_nodes = set()
 
     for record_idx in nodes:
         for hf_idx in nodes:
             if record_idx != hf_idx and record_idx in semmed_simple.nodes and hf_idx in semmed_simple.nodes:
-                all_nodes |= set(semmed_simple[record_idx]) & set(semmed_simple[hf_idx])
+                for u in semmed_simple[record_idx]:
+                    for v in semmed_simple[hf_idx]:
+                        if semmed_simple.has_edge(u, v):  # hf_cui is a 3-hop neighbour of record_cui
+                            extra_nodes.add(u)
+                            extra_nodes.add(v)
+                        if u == v:  # hf_cui is a 2-hop neighbour of record_cui
+                            extra_nodes.add(u)
+    extra_nodes = extra_nodes - nodes
+
+    schema_graph = sorted(record_idxs) + sorted(hf_idxs) + sorted(extra_nodes)
+    arange = np.arange(len(schema_graph))
+    record_mask = arange < len(record_idxs)
+    hf_mask = (arange >= len(record_idxs)) & (arange < (len(record_idxs) + len(hf_idxs)))
+    adj, cui_idxs = cui2adj(schema_graph)
+    return adj, cui_idxs, record_mask, hf_mask
+
+
+def save_nodes_of_2hop_all_pair(data):
+    record_idxs, hf_idxs = data
+    nodes = set(record_idxs) | set(hf_idxs)
+    extra_nodes = set()
+
+    for record_idx in hf_idxs:
+        for hf_idx in hf_idxs:
+            if record_idx != hf_idx and record_idx in semmed_simple.nodes and hf_idx in semmed_simple.nodes:
+                extra_nodes |= set(semmed_simple[record_idx]) & set(semmed_simple[hf_idx])
+    extra_nodes = extra_nodes - nodes
+    all_nodes = record_idxs | hf_idxs | extra_nodes
+    return all_nodes
+
+
+def save_nodes_of_3hop_all_pair(data):
+    record_idxs, hf_idxs = data
+    nodes = set(record_idxs) | set(hf_idxs)
+    extra_nodes = set()
+
+    for record_idx in record_idxs:
+        for hf_idx in hf_idxs:
+            if record_idx != hf_idx and record_idx in semmed_simple.nodes and hf_idx in semmed_simple.nodes:
+                for u in semmed_simple[record_idx]:
+                    for v in semmed_simple[hf_idx]:
+                        if semmed_simple.has_edge(u, v):  # hf_cui is a 3-hop neighbour of record_cui
+                            extra_nodes.add(u)
+                            extra_nodes.add(v)
+                        if u == v:  # hf_cui is a 2-hop neighbour of record_cui
+                            extra_nodes.add(u)
+    extra_nodes = extra_nodes - nodes
+    all_nodes = record_idxs | hf_idxs | extra_nodes
     return all_nodes
 
 
@@ -265,6 +312,9 @@ def generate_adj_data_from_grounded_concepts(grounded_path, semmed_graph_path, s
 
 
 def extract_subgraph_cui(grounded_train_path, grounded_dev_path, grounded_test_path, semmed_graph_path, semmed_cui_path, output_path, num_processes=8, debug=False):
+    """
+    extracting all cui in the 2hop and 3hop paths of the hfdata as the subgraph cui list
+    """
     print(f"extracting subgraph cui from grounded_path...")
 
     global cui2idx, idx2cui, relation2idx, idx2relation, semmed, semmed_simple
@@ -274,6 +324,7 @@ def extract_subgraph_cui(grounded_train_path, grounded_dev_path, grounded_test_p
         load_semmed(semmed_graph_path)
 
     data = []
+    semmed_cui = set()
     semmed_cui_list = []
 
     with open(grounded_train_path, "r", encoding="utf-8") as fin:
@@ -282,30 +333,34 @@ def extract_subgraph_cui(grounded_train_path, grounded_dev_path, grounded_test_p
             record_idxs = set(cui2idx[c] for c in dic["record_cui"])
             hf_idxs = set(cui2idx[c] for c in dic["hf_cui"])
             record_idxs = record_idxs - hf_idxs
-            data.append((record_idxs, hf_idxs))
+            if (record_idxs, hf_idxs) not in data:
+                data.append((record_idxs, hf_idxs))
     with open(grounded_dev_path, "r", encoding="utf-8") as fin:
         for line in fin:
             dic = json.loads(line)
             record_idxs = set(cui2idx[c] for c in dic["record_cui"])
             hf_idxs = set(cui2idx[c] for c in dic["hf_cui"])
             record_idxs = record_idxs - hf_idxs
-            data.append((record_idxs, hf_idxs))
+            if (record_idxs, hf_idxs) not in data:
+                data.append((record_idxs, hf_idxs))
     with open(grounded_test_path, "r", encoding="utf-8") as fin:
         for line in fin:
             dic = json.loads(line)
             record_idxs = set(cui2idx[c] for c in dic["record_cui"])
             hf_idxs = set(cui2idx[c] for c in dic["hf_cui"])
             record_idxs = record_idxs - hf_idxs
-            data.append((record_idxs, hf_idxs))
+            if (record_idxs, hf_idxs) not in data:
+                data.append((record_idxs, hf_idxs))
 
     if debug:
         data = data[0:8]
 
     with Pool(num_processes) as p:
-        res = list(tqdm(p.imap(save_nodes_of_2hop_all_pair, data), total=len(data)))
+        res = list(tqdm(p.imap(save_nodes_of_3hop_all_pair, data), total=len(data)))
+
     for cui_set in res:
-        semmed_cui_list.extend(list(cui_set))
-    semmed_cui_list = list(set(semmed_cui_list))
+        semmed_cui.update(cui_set)
+    semmed_cui_list = list(semmed_cui)
 
     with open(output_path, "w", encoding="utf-8") as fout:
         for semmed_cui in semmed_cui_list:
