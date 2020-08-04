@@ -7,7 +7,7 @@ from utils.convert_hfdata import convert_to_cui
 from utils.grounding import ground
 from utils.paths import find_paths, score_paths, prune_paths, generate_path_and_graph_from_adj
 from utils.semmed import extract_semmed_cui, construct_graph, construct_subgraph
-from utils.graph import extract_subgraph_cui, extract_subgraph, generate_graph, generate_adj_data_from_grounded_concepts
+from utils.graph import extract_subgraph_cui, extract_cui_and_subgraph_from_ground, extract_subgraph_from_path, generate_graph, generate_adj_data_from_grounded_concepts
 from utils.triples import generate_triples_from_adj
 
 input_paths = {
@@ -35,9 +35,14 @@ output_paths = {
     'semmed': {
         'cui-list': './data/semmed/cui_list.txt',
         'subgraph-cui-list': './data/semmed/subgraph_cui_list.txt',
+        'subgraph-cui-list-path': './data/semmed/subgraph_cui_list_path.txt',
+
         'graph': './data/semmed/semmed.unpruned.graph',
         'subgraph': './data/semmed/semmed.subgraph.graph',
-        'txt': './data/semmed/subgraph.txt',
+
+        'txt': './data/semmed/graph.txt',
+        'sub-txt': './data/semmed/graph.txt',
+        'txt-path': './data/semmed/subgraph_path.txt',
     },
     'hfdata': {
         'converted': {
@@ -101,7 +106,7 @@ def main():
     routines = {
         'common': [
             # {'func': extract_semmed_cui, 'args': (input_paths['semmed']['csv'], output_paths['semmed']['cui-list'])},
-            # {'func': construct_graph, 'args': (input_paths['semmed']['csv'], output_paths['semmed']['cui-list'], output_paths['semmed']['graph'])},
+            # {'func': construct_graph, 'args': (input_path0s['semmed']['csv'], output_paths['semmed']['cui-list'], output_paths['semmed']['graph'], output_paths['semmed']['txt'])},
         ],
         'hfdata': [
             # {'func': convert_to_cui, 'args': (input_paths['hfdata']['train'], output_paths['hfdata']['converted']['train'], input_paths['hfdata']['code2idx'],
@@ -114,18 +119,22 @@ def main():
             # {'func': ground, 'args': (output_paths['hfdata']['converted']['train'], output_paths['semmed']['cui-list'], output_paths['hfdata']['grounded']['train'], args.nprocs)},
             # {'func': ground, 'args': (output_paths['hfdata']['converted']['dev'], output_paths['semmed']['cui-list'], output_paths['hfdata']['grounded']['dev'], args.nprocs)},
             # {'func': ground, 'args': (output_paths['hfdata']['converted']['test'], output_paths['semmed']['cui-list'], output_paths['hfdata']['grounded']['test'], args.nprocs)},
-            {'func': extract_subgraph_cui, 'args': (output_paths['hfdata']['grounded']['train'], output_paths['hfdata']['grounded']['dev'], output_paths['hfdata']['grounded']['test'],
-                                                    output_paths['semmed']['graph'], output_paths['semmed']['cui-list'], output_paths['semmed']['subgraph-cui-list'], args.nprocs)},
-            {'func': construct_subgraph, 'args': (input_paths['semmed']['csv'], output_paths['semmed']['subgraph-cui-list'], output_paths['semmed']['subgraph'], output_paths['semmed']['txt'])},
-            {'func': ground, 'args': (output_paths['hfdata']['converted']['train'], output_paths['semmed']['subgraph-cui-list'], output_paths['hfdata']['grounded']['train'], args.nprocs)},
-            {'func': ground, 'args': (output_paths['hfdata']['converted']['dev'], output_paths['semmed']['subgraph-cui-list'], output_paths['hfdata']['grounded']['dev'], args.nprocs)},
-            {'func': ground, 'args': (output_paths['hfdata']['converted']['test'], output_paths['semmed']['subgraph-cui-list'], output_paths['hfdata']['grounded']['test'], args.nprocs)},
+
+            {'func': extract_cui_and_subgraph_from_ground, 'args': (output_paths['hfdata']['grounded']['train'], output_paths['hfdata']['grounded']['dev'], output_paths['hfdata']['grounded']['test'],
+                                                    output_paths['semmed']['graph'], output_paths['semmed']['cui-list'], output_paths['semmed']['subgraph-cui-list'], output_paths['semmed']['sub-txt'])},
+            # {'func': construct_subgraph, 'args': (input_paths['semmed']['csv'], output_paths['semmed']['subgraph-cui-list'], output_paths['semmed']['subgraph'], output_paths['semmed']['sub-txt'])},
+            # {'func': ground, 'args': (output_paths['hfdata']['converted']['train'], output_paths['semmed']['subgraph-cui-list'], output_paths['hfdata']['grounded']['train'], args.nprocs)},
+            # {'func': ground, 'args': (output_paths['hfdata']['converted']['dev'], output_paths['semmed']['subgraph-cui-list'], output_paths['hfdata']['grounded']['dev'], args.nprocs)},
+            # {'func': ground, 'args': (output_paths['hfdata']['converted']['test'], output_paths['semmed']['subgraph-cui-list'], output_paths['hfdata']['grounded']['test'], args.nprocs)},
+
             # {'func': find_paths, 'args': (output_paths['hfdata']['grounded']['train'], output_paths['semmed']['cui-list'],
             #                               output_paths['semmed']['graph'], output_paths['hfdata']['paths']['raw-train'], args.nprocs, args.seed)},
             # {'func': find_paths, 'args': (output_paths['hfdata']['grounded']['dev'], output_paths['semmed']['cui-list'],
             #                               output_paths['semmed']['graph'], output_paths['hfdata']['paths']['raw-dev'], args.nprocs, args.seed)},
             # {'func': find_paths, 'args': (output_paths['hfdata']['grounded']['test'], output_paths['semmed']['cui-list'],
             #                               output_paths['semmed']['graph'], output_paths['hfdata']['paths']['raw-test'], args.nprocs, args.seed)},
+            # {'func': extract_subgraph_from_path, 'args': (output_paths['hfdata']['paths']['raw-train'], output_paths['hfdata']['paths']['raw-dev'], output_paths['hfdata']['paths']['raw-test'],
+            #                                               output_paths['semmed']['cui-list'], output_paths['semmed']['subgraph-cui-list-path'], output_paths['semmed']['txt-path'])},
             # {'func': score_paths, 'args': (output_paths['hfdata']['paths']['raw-train'], input_paths['transe']['ent'], input_paths['transe']['rel'],
             #                                output_paths['semmed']['subgraph-cui-list'], output_paths['hfdata']['paths']['scores-train'], args.nprocs)},
             # {'func': score_paths, 'args': (output_paths['hfdata']['paths']['raw-dev'], input_paths['transe']['ent'], input_paths['transe']['rel'],

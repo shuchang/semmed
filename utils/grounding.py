@@ -84,6 +84,8 @@ def ground(medical_record_path, semmed_cui_path, output_path, num_processes=1, d
         heart_disease = j["heart_diseases"]
 
         combined_cui = combine_visit_cui(medical_record["record_cui"])
+        if combined_cui == []:
+            continue
         total_cui["record_cui"] = combined_cui
         total_cui["hf_cui"] = heart_disease["hf_cui"]
         total_cui_list.append(total_cui)

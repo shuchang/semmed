@@ -13,23 +13,12 @@ from tqdm import tqdm
 # from .maths import *
 
 # try:
-#     from .semmed import relations
+    # from .semmed import relations
 # except ModuleNotFoundError:
-#     from semmed import relations
+from .semmed import relations
 
 
 __all__ = ['generate_graph']
-
-
-relations = ['administered_to', 'affects', 'associated_with', 'augments', 'causes', 'coexists_with', 'complicates', 'converts_to',
-             'diagnoses', 'disrupts', 'higher_than', 'inhibits', 'isa', 'interacts_with', 'location_of', 'lower_than', 'manifestation_of',
-             'measurement_of', 'measures', 'method_of', 'occurs_in', 'part_of', 'precedes', 'predisposes', 'prevents', 'process_of',
-             'produces', 'same_as', 'stimulates', 'treats', 'uses',  'compared_with', 'prep',
-             'neg_administered_to', 'neg_affects', 'neg_associated_with', 'neg_augments', 'neg_causes', 'neg_coexists_with',
-             'neg_complicates', 'neg_converts_to', 'neg_diagnoses', 'neg_disrupts', 'neg_higher_than', 'neg_inhibits', 'neg_isa',
-             'neg_interacts_with', 'neg_location_of', 'neg_lower_than', 'neg_manifestation_of', 'neg_measurement_of', 'neg_measures',
-             'neg_method_of', 'neg_occurs_in', 'neg_part_of', 'neg_precedes', 'neg_predisposes', 'neg_prevents', 'neg_process_of',
-             'neg_produces', 'neg_same_as', 'neg_stimulates', 'neg_treats', 'neg_uses']
 
 
 cui2idx = None
@@ -208,6 +197,45 @@ def save_nodes_of_3hop_all_pair(data):
     return all_nodes
 
 
+def save_triples(u, v):
+    """
+    save triples in two directions
+    """
+    triples = []
+    # if semmed.has_edge(u, v):
+        # for value in semmed[u][v].values():
+        #     triples.append((u, v, value['rel']))
+    # if semmed.has_edge(v, u):
+        # for reverse_value in semmed[v][u].values():
+        #     triples.append((v, u, reverse_value['rel']))
+    for value in semmed[u][v].values():
+        triples.append((u, v, value['rel']))
+    for reverse_value in semmed[v][u].values():
+        triples.append((v, u, reverse_value['rel']))
+    return triples
+
+
+def save_triples_of_3hop_all_pair(data):
+    record_idxs, hf_idxs = data
+    triples = []
+
+    for record_idx in record_idxs:
+        for hf_idx in hf_idxs:
+            if record_idx != hf_idx and record_idx in semmed_simple.nodes and hf_idx in semmed_simple.nodes:
+                for u in semmed_simple[record_idx]:
+                    for v in semmed_simple[hf_idx]:
+                        if semmed_simple.has_edge(u, v):
+                            # hf_cui is a 3-hop neighbour of record_cui
+                            triples.extend(save_triples(record_idx, u))
+                            triples.extend(save_triples(u, v))
+                            triples.extend(save_triples(v, hf_idx))
+                        if u == v:
+                            # hf_cui is a 2-hop neighbour of record_cui
+                            triples.extend(save_triples(record_idx, u))
+                            triples.extend(save_triples(v, hf_idx))
+    return triples
+
+
 def extract_triples(cui_idx: list, rel_idx: list) -> list:
     """
     extract triples in one path
@@ -315,7 +343,7 @@ def extract_subgraph_cui(grounded_train_path, grounded_dev_path, grounded_test_p
     """
     extracting all cui in the 2hop and 3hop paths of the hfdata as the subgraph cui list
     """
-    print(f"extracting subgraph cui from grounded_path...")
+    print("extracting subgraph cui from grounded_path...")
 
     global cui2idx, idx2cui, relation2idx, idx2relation, semmed, semmed_simple
     if any(x is None for x in [cui2idx, idx2cui, relation2idx, idx2relation]):
@@ -363,32 +391,110 @@ def extract_subgraph_cui(grounded_train_path, grounded_dev_path, grounded_test_p
     semmed_cui_list = list(semmed_cui)
 
     with open(output_path, "w", encoding="utf-8") as fout:
-        for semmed_cui in semmed_cui_list:
-            fout.write(str(idx2cui[semmed_cui]) + "\n")
+        for cui in semmed_cui_list:
+            fout.write(str(idx2cui[cui]) + "\n")
 
     print(f'extracted subgraph cui saved to {output_path}')
     print()
 
+# Ongoing
+def extract_cui_and_subgraph_from_ground(grounded_train_path, grounded_dev_path, grounded_test_path, semmed_graph_path, semmed_cui_path, output_cui_path, output_txt_path, num_processes=4, debug=False):
+    """
+    extracting all cui in the 2hop and 3hop paths of the hfdata as the subgraph cui list
+    """
+    print("extracting subgraph cui from grounded_path...")
 
-def extract_subgraph(raw_paths_train_path, raw_paths_dev_path, raw_paths_test_path, semmed_cui_path, output_path):
-    print('extracting subgraph of SemMed by preserving all triples without repetition...')
+    global cui2idx, idx2cui, relation2idx, idx2relation, semmed, semmed_simple
+    if any(x is None for x in [cui2idx, idx2cui, relation2idx, idx2relation]):
+        load_resources(semmed_cui_path)
+    if any(x is None for x in [semmed, semmed_simple]):
+        load_semmed(semmed_graph_path)
+
+    data = []
+    triple_list = []
+    semmed_cui_list = []
+
+    num_train = sum(1 for _ in open(grounded_train_path, "r", encoding="utf-8"))
+    num_dev = sum(1 for _ in open(grounded_dev_path, "r", encoding="utf-8"))
+    num_test = sum(1 for _ in open(grounded_test_path, "r", encoding="utf-8"))
+
+    with open(grounded_train_path, "r", encoding="utf-8") as fin:
+        for line in tqdm(fin, total=num_train, desc="reading grounded train..."):
+            dic = json.loads(line)
+            record_idxs = set(cui2idx[c] for c in dic["record_cui"])
+            hf_idxs = set(cui2idx[c] for c in dic["hf_cui"])
+            record_idxs = record_idxs - hf_idxs
+            if (record_idxs, hf_idxs) not in data:
+                data.append((record_idxs, hf_idxs))
+    with open(grounded_dev_path, "r", encoding="utf-8") as fin:
+        for line in tqdm(fin, total=num_dev, desc="reading grounded dev..."):
+            dic = json.loads(line)
+            record_idxs = set(cui2idx[c] for c in dic["record_cui"])
+            hf_idxs = set(cui2idx[c] for c in dic["hf_cui"])
+            if (record_idxs, hf_idxs) not in data:
+                data.append((record_idxs, hf_idxs))
+    with open(grounded_test_path, "r", encoding="utf-8") as fin:
+        for line in tqdm(fin, total=num_test, desc="reading grounded test..."):
+            dic = json.loads(line)
+            record_idxs = set(cui2idx[c] for c in dic["record_cui"])
+            hf_idxs = set(cui2idx[c] for c in dic["hf_cui"])
+            if (record_idxs, hf_idxs) not in data:
+                data.append((record_idxs, hf_idxs))
+
+    if debug:
+        data = data[0:2]
+
+    with Pool(num_processes) as p:
+        res = list(tqdm(p.imap(save_triples_of_3hop_all_pair, data), total=len(data)))
+    # res = []
+    # for line in data:
+    #     res.extend(save_triples_of_3hop_all_pair(line))
+
+    for triples in res:
+        triple_list.extend(triples)
+    triple_list = list(set(triple_list))
+    for triple in triple_list:
+        semmed_cui_list.append(idx2cui[triple[0]])
+        semmed_cui_list.append(idx2cui[triple[1]])
+    semmed_cui_list = list(set(semmed_cui_list))
+    new_cui2idx = {c: i for i, c in enumerate(semmed_cui_list)}
+
+    with open(output_cui_path, "w", encoding="utf-8") as fout:
+        for cui in semmed_cui_list:
+            fout.write(str(cui) + "\n")
+
+    with open(output_txt_path, "w", encoding="utf-8") as fout:
+        for triple in triple_list:
+            fout.write(str(new_cui2idx[idx2cui[triple[0]]]) + "\t" +
+            str(new_cui2idx[idx2cui[triple[1]]]) + "\t" + str(triple[2])+ "\n")
+
+    print(f'extracted subgraph cui saved to {output_cui_path}')
+    print(f'extracted subgraph saved to {output_txt_path}')
+    print()
+
+
+############################ The following function extracts subgraph based on path finding results ############################
+def extract_subgraph_from_path(raw_paths_train_path, raw_paths_dev_path, raw_paths_test_path, semmed_cui_path, output_cui_path, output_txt_path):
+    """
+    extracting subgraph of SemMed by preserving all triples without repetition
+    """
+    print("extracting subgraph cui and subgraph from raw paths...")
 
     global cui2idx, idx2cui, relation2idx, idx2relation
     if any(x is None for x in [cui2idx, idx2cui, relation2idx, idx2relation]):
         load_resources(semmed_cui_path)
 
     triple_list = []
+    semmed_cui_list = []
     nrow_train = sum(1 for _ in open(raw_paths_train_path, "r"))
     nrow_dev = sum(1 for _ in open(raw_paths_dev_path, "r"))
     nrow_test = sum(1 for _ in open(raw_paths_test_path, "r"))
 
     with open(raw_paths_train_path, "r") as fin:
         data = [json.loads(line) for line in fin]
-        for item in tqdm(data, total=nrow_train, desc="extracting from train"):
+        for item in tqdm(data, total=nrow_train, desc="extracting from train..."):
             for line in item:
                 pair_paths = line["pf_res"]
-                if pair_paths is None: # TODO: find out why pair_paths is None
-                    continue
                 for path in pair_paths:
                     triples = extract_triples(cui_idx=path["path"], rel_idx=path["rel"])
                     for t in triples:
@@ -396,11 +502,9 @@ def extract_subgraph(raw_paths_train_path, raw_paths_dev_path, raw_paths_test_pa
 
     with open(raw_paths_dev_path, "r") as fin:
         data = [json.loads(line) for line in fin]
-        for item in tqdm(data, total=nrow_dev, desc="extracting from dev"):
+        for item in tqdm(data, total=nrow_dev, desc="extracting from dev..."):
             for line in item:
                 pair_paths = line["pf_res"]
-                if pair_paths is None:
-                    continue
                 for path in pair_paths:
                     triples = extract_triples(cui_idx=path["path"], rel_idx=path["rel"])
                     for t in triples:
@@ -408,11 +512,9 @@ def extract_subgraph(raw_paths_train_path, raw_paths_dev_path, raw_paths_test_pa
 
     with open(raw_paths_test_path, "r") as fin:
         data = [json.loads(line) for line in fin]
-        for item in tqdm(data, total=nrow_test, desc="extracting from test"):
+        for item in tqdm(data, total=nrow_test, desc="extracting from test..."):
             for line in item:
                 pair_paths = line["pf_res"]
-                if pair_paths is None:
-                    continue
                 for path in pair_paths:
                     triples = extract_triples(cui_idx=path["path"], rel_idx=path["rel"])
                     for t in triples:
@@ -420,15 +522,28 @@ def extract_subgraph(raw_paths_train_path, raw_paths_dev_path, raw_paths_test_pa
 
     triple_list = list(set(triple_list))
 
-    with open(output_path, "w", encoding="utf-8") as fout:
-        for triple in triple_list:
-            fout.write(str(triple[0]) + "\t" + str(triple[1]) + "\t" + str(triple[2])+ "\n")
+    for triple in triple_list:
+        semmed_cui_list.append(idx2cui[triple[0]])
+        semmed_cui_list.append(idx2cui[triple[1]])
+    semmed_cui_list = list(set(semmed_cui_list))
+    new_cui2idx = {c: i for i, c in enumerate(semmed_cui_list)}
 
-    print(f'extracted subgraph saved to {output_path}')
+    with open(output_cui_path, "w", encoding="utf-8") as fout:
+        for cui in semmed_cui_list:
+            fout.write(str(cui) + "\n")
+
+    with open(output_txt_path, "w", encoding="utf-8") as fout:
+        for triple in triple_list:
+            fout.write(str(new_cui2idx[idx2cui[triple[0]]]) + "\t" +
+            str(new_cui2idx[idx2cui[triple[1]]]) + "\t" + str(triple[2])+ "\n")
+
+    print(f'extracted subgraph cui saved to {output_cui_path}')
+    print(f'extracted subgraph saved to {output_txt_path}')
     print()
 
 
 
 if __name__ == "__main__":
     # generate_adj_data_from_grounded_concepts((sys.argv[1]), (sys.argv[2]), (sys.argv[3]), (sys.argv[4]))
-    extract_subgraph_cui((sys.argv[1]), (sys.argv[2]), (sys.argv[3]), (sys.argv[4]), (sys.argv[5]), (sys.argv[6]))
+    # extract_subgraph_cui((sys.argv[1]), (sys.argv[2]), (sys.argv[3]), (sys.argv[4]), (sys.argv[5]), (sys.argv[6]))
+    extract_cui_and_subgraph_from_ground((sys.argv[1]), (sys.argv[2]), (sys.argv[3]), (sys.argv[4]), (sys.argv[5]), (sys.argv[6]), (sys.argv[7]))

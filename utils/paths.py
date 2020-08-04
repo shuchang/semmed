@@ -15,18 +15,6 @@ except ModuleNotFoundError:
     from semmed import relations
 
 
-# (33 pos, 31 neg): no neg_compared_with, neg_prep
-# relations = ['administered_to', 'affects', 'associated_with', 'augments', 'causes', 'coexists_with', 'complicates', 'converts_to',
-#              'diagnoses', 'disrupts', 'higher_than', 'inhibits', 'isa', 'interacts_with', 'location_of', 'lower_than', 'manifestation_of',
-#              'measurement_of', 'measures', 'method_of', 'occurs_in', 'part_of', 'precedes', 'predisposes', 'prevents', 'process_of',
-#              'produces', 'same_as', 'stimulates', 'treats', 'uses',  'compared_with', 'prep',
-#              'neg_administered_to', 'neg_affects', 'neg_associated_with', 'neg_augments', 'neg_causes', 'neg_coexists_with',
-#              'neg_complicates', 'neg_converts_to', 'neg_diagnoses', 'neg_disrupts', 'neg_higher_than', 'neg_inhibits', 'neg_isa',
-#              'neg_interacts_with', 'neg_location_of', 'neg_lower_than', 'neg_manifestation_of', 'neg_measurement_of', 'neg_measures',
-#              'neg_method_of', 'neg_occurs_in', 'neg_part_of', 'neg_precedes', 'neg_predisposes', 'neg_prevents', 'neg_process_of',
-#              'neg_produces', 'neg_same_as', 'neg_stimulates', 'neg_treats', 'neg_uses']
-
-
 cui2idx = None
 idx2cui = None
 relation2idx = None
@@ -75,12 +63,9 @@ def get_edge(src_idx: int, tgt_idx: int) -> list:
         res: list of all existing relations without repetition
     """
     global semmed
-    if semmed.has_edge(src_idx, tgt_idx): # there exists triples in reverse direction
-        rel_list = semmed[src_idx][tgt_idx]
-        rel_seen = set()
-        res = [r["rel"] for r in rel_list.values() if r["rel"] not in rel_seen and (rel_seen.add(r["rel"]) or True)]
-    else:
-        return
+    rel_list = semmed[src_idx][tgt_idx]
+    rel_seen = set()
+    res = [r["rel"] for r in rel_list.values() if r["rel"] not in rel_seen and (rel_seen.add(r["rel"]) or True)]
     return res
 
 
