@@ -91,7 +91,7 @@ def find_paths_between_single_cui_pair(src_cui: str, tgt_cui: str) -> list:
     all_path = []
     try:
         for p in nx.shortest_simple_paths(semmed_simple, source=src_idx, target=tgt_idx):
-            if len(p) > 4 or len(all_path) >= 5:
+            if len(p) > 4 and len(all_path) > 5:
                 break
             if len(p) >= 2: # skip paths of self loop
                 all_path.append(p)

@@ -397,8 +397,8 @@ def extract_subgraph_cui(grounded_train_path, grounded_dev_path, grounded_test_p
     print(f'extracted subgraph cui saved to {output_path}')
     print()
 
-# Ongoing
-def extract_cui_and_subgraph_from_ground(grounded_train_path, grounded_dev_path, grounded_test_path, semmed_graph_path, semmed_cui_path, output_cui_path, output_txt_path, num_processes=4, debug=False):
+
+def extract_cui_and_subgraph_from_ground(grounded_train_path, grounded_dev_path, grounded_test_path, semmed_graph_path, semmed_cui_path, output_cui_path, output_txt_path, num_processes=1, debug=False):
     """
     extracting all cui in the 2hop and 3hop paths of the hfdata as the subgraph cui list
     """

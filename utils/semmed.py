@@ -9,30 +9,25 @@ from tqdm import tqdm
 # except ImportError:
 #     from utils import check_file
 
-__all__ = ["construct_graph", "merged_relations"]
+__all__ = ["construct_graph", "relations"]
 
 
 # (33 pos, 31 neg): no neg_compared_with, neg_prep
 relations = ['administered_to', 'affects', 'associated_with', 'augments', 'causes', 'coexists_with', 'complicates', 'converts_to',
              'diagnoses', 'disrupts', 'higher_than', 'inhibits', 'isa', 'interacts_with', 'location_of', 'lower_than', 'manifestation_of',
              'measurement_of', 'measures', 'method_of', 'occurs_in', 'part_of', 'precedes', 'predisposes', 'prevents', 'process_of',
-             'produces', 'same_as', 'stimulates', 'treats', 'uses',  'compared_with', 'prep',
-             'neg_administered_to', 'neg_affects', 'neg_associated_with', 'neg_augments', 'neg_causes', 'neg_coexists_with',
-             'neg_complicates', 'neg_converts_to', 'neg_diagnoses', 'neg_disrupts', 'neg_higher_than', 'neg_inhibits', 'neg_isa',
-             'neg_interacts_with', 'neg_location_of', 'neg_lower_than', 'neg_manifestation_of', 'neg_measurement_of', 'neg_measures',
-             'neg_method_of', 'neg_occurs_in', 'neg_part_of', 'neg_precedes', 'neg_predisposes', 'neg_prevents', 'neg_process_of',
-             'neg_produces', 'neg_same_as', 'neg_stimulates', 'neg_treats', 'neg_uses', 'neg_compared_with', 'neg_prep'] # neg_compared_with, neg_prep were padded
-
-relation_groups = []
+             'produces', 'same_as', 'stimulates', 'treats', 'uses',  'compared_with', 'prep'] # negative relations are deleted
 
 
-merged_relations = []
+# relation_groups = []
 
-def load_merge_relation():
-    # TODO: merge relation
-    """
-    `return`: relation_mapping: {"":}
-    """
+# merged_relations = []
+
+# def load_merge_relation():
+#     # TODO: merge relation
+#     """
+#     `return`: relation_mapping: {"":}
+#     """
 
 
 def separate_semmed_cui(semmed_cui: str) -> list:
@@ -117,9 +112,10 @@ def construct_graph(semmed_csv_path, semmed_cui_path, output_path, output_txt_pa
         attrs = set()
         for line in tqdm(fin, total=nrow):
             ls = line.strip().split(',')
+            if ls[3].lower() not in relations:
+                continue
             if ls[4] == ls[8]: # delete self-loop, not useful for our task
                 continue
-
             sent = ls[1]
             rel = relation2idx[ls[3].lower()]
 
@@ -130,12 +126,6 @@ def construct_graph(semmed_csv_path, semmed_cui_path, output_path, output_txt_pa
                     if (subj, obj, rel) not in attrs:
                         graph.add_edge(subj, obj, rel=rel, sent=sent)
                         attrs.add((subj, obj, rel))
-                        if rel > 33:
-                            graph.add_edge(obj, subj, rel=rel - 33, sent=sent)
-                            attrs.add((obj, subj, rel - 33))
-                        else:
-                            graph.add_edge(obj, subj, rel=rel + 33, sent=sent)
-                            attrs.add((obj, subj, rel + 33))
                 elif len(ls[4]) != 8 and len(ls[8]) == 8:
                     cui_list = separate_semmed_cui(ls[4])
                     subj_list = [cui2idx[s] for s in cui_list]
@@ -144,12 +134,6 @@ def construct_graph(semmed_csv_path, semmed_cui_path, output_path, output_txt_pa
                         if (subj, obj, rel) not in attrs:
                             graph.add_edge(subj, obj, rel=rel, sent=sent)
                             attrs.add((subj, obj, rel))
-                            if rel > 33:
-                                graph.add_edge(obj, subj, rel=rel - 33, sent=sent)
-                                attrs.add((obj, subj, rel - 33))
-                            else:
-                                graph.add_edge(obj, subj, rel=rel + 33, sent=sent)
-                                attrs.add((obj, subj, rel + 33))
                 elif len(ls[4]) == 8 and len(ls[8]) != 8:
                     cui_list = separate_semmed_cui(ls[8])
                     obj_list = [cui2idx[o] for o in cui_list]
@@ -158,12 +142,6 @@ def construct_graph(semmed_csv_path, semmed_cui_path, output_path, output_txt_pa
                         if (subj, obj, rel) not in attrs:
                             graph.add_edge(subj, obj, rel=rel, sent=sent)
                             attrs.add((subj, obj, rel))
-                            if rel > 33:
-                                graph.add_edge(obj, subj, rel=rel - 33, sent=sent)
-                                attrs.add((obj, subj, rel - 33))
-                            else:
-                                graph.add_edge(obj, subj, rel=rel + 33, sent=sent)
-                                attrs.add((obj, subj, rel + 33))
                 else:
                     cui_list1 = separate_semmed_cui(ls[4])
                     subj_list = [cui2idx[s] for s in cui_list1]
@@ -174,12 +152,6 @@ def construct_graph(semmed_csv_path, semmed_cui_path, output_path, output_txt_pa
                             if (subj, obj, rel) not in attrs:
                                 graph.add_edge(subj, obj, rel=rel, sent=sent)
                                 attrs.add((subj, obj, rel))
-                                if rel > 33:
-                                    graph.add_edge(obj, subj, rel=rel - 33, sent=sent)
-                                    attrs.add((obj, subj, rel - 33))
-                                else:
-                                    graph.add_edge(obj, subj, rel=rel + 33, sent=sent)
-                                    attrs.add((obj, subj, rel + 33))
 
     nx.write_gpickle(graph, output_path)
 
@@ -209,9 +181,11 @@ def construct_subgraph(semmed_csv_path, semmed_cui_path, output_graph_path, outp
         attrs = set()
         for line in tqdm(fin, total=nrow):
             ls = line.strip().split(',')
-            if ls[4] == ls[8]: # delete self-loop, not useful for our task
+            if ls[3].lower() not in relations:
                 continue
             if ls[4] not in idx2cui or ls[8] not in idx2cui:
+                continue
+            if ls[4] == ls[8]: # delete self-loop, not useful for our task
                 continue
 
             sent = ls[1]
@@ -224,12 +198,6 @@ def construct_subgraph(semmed_csv_path, semmed_cui_path, output_graph_path, outp
                     if (subj, obj, rel) not in attrs:
                         graph.add_edge(subj, obj, rel=rel, sent=sent)
                         attrs.add((subj, obj, rel))
-                        if rel > 33:
-                            graph.add_edge(obj, subj, rel=rel - 33, sent=sent)
-                            attrs.add((obj, subj, rel - 33))
-                        else:
-                            graph.add_edge(obj, subj, rel=rel + 33, sent=sent)
-                            attrs.add((obj, subj, rel + 33))
                 elif len(ls[4]) != 8 and len(ls[8]) == 8:
                     cui_list = separate_semmed_cui(ls[4])
                     subj_list = [cui2idx[s] for s in cui_list]
@@ -238,12 +206,6 @@ def construct_subgraph(semmed_csv_path, semmed_cui_path, output_graph_path, outp
                         if (subj, obj, rel) not in attrs:
                             graph.add_edge(subj, obj, rel=rel, sent=sent)
                             attrs.add((subj, obj, rel))
-                            if rel > 33:
-                                graph.add_edge(obj, subj, rel=rel - 33, sent=sent)
-                                attrs.add((obj, subj, rel - 33))
-                            else:
-                                graph.add_edge(obj, subj, rel=rel + 33, sent=sent)
-                                attrs.add((obj, subj, rel + 33))
                 elif len(ls[4]) == 8 and len(ls[8]) != 8:
                     cui_list = separate_semmed_cui(ls[8])
                     obj_list = [cui2idx[o] for o in cui_list]
@@ -252,12 +214,6 @@ def construct_subgraph(semmed_csv_path, semmed_cui_path, output_graph_path, outp
                         if (subj, obj, rel) not in attrs:
                             graph.add_edge(subj, obj, rel=rel, sent=sent)
                             attrs.add((subj, obj, rel))
-                            if rel > 33:
-                                graph.add_edge(obj, subj, rel=rel - 33, sent=sent)
-                                attrs.add((obj, subj, rel - 33))
-                            else:
-                                graph.add_edge(obj, subj, rel=rel + 33, sent=sent)
-                                attrs.add((obj, subj, rel + 33))
                 else:
                     cui_list1 = separate_semmed_cui(ls[4])
                     subj_list = [cui2idx[s] for s in cui_list1]
@@ -268,12 +224,6 @@ def construct_subgraph(semmed_csv_path, semmed_cui_path, output_graph_path, outp
                             if (subj, obj, rel) not in attrs:
                                 graph.add_edge(subj, obj, rel=rel, sent=sent)
                                 attrs.add((subj, obj, rel))
-                                if rel > 33:
-                                    graph.add_edge(obj, subj, rel=rel - 33, sent=sent)
-                                    attrs.add((obj, subj, rel - 33))
-                                else:
-                                    graph.add_edge(obj, subj, rel=rel + 33, sent=sent)
-                                    attrs.add((obj, subj, rel + 33))
 
     nx.write_gpickle(graph, output_graph_path)
 
@@ -288,5 +238,5 @@ def construct_subgraph(semmed_csv_path, semmed_cui_path, output_graph_path, outp
 
 
 if __name__ == "__main__":
-    construct_graph((sys.argv[1]), (sys.argv[2]), (sys.argv[3]))
+    construct_graph((sys.argv[1]), (sys.argv[2]), (sys.argv[3]), (sys.argv[4]))
     # extract_semmed_cui((sys.argv[1]), (sys.argv[2]))
